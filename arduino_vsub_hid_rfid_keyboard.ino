@@ -15,7 +15,6 @@ static uint16_t multiplexer =0, button_release_counter = 0; // repeat rate for k
 static char message[20]; 
 static uchar imsg = 0, iSzMsg = 0;
 
-String inputString = "", prevString="";         // a string to hold incoming data
 boolean stringComplete = false;  // whether the string is complete
 
 #define SZ_MSG 20
@@ -27,6 +26,7 @@ boolean stringComplete = false;  // whether the string is complete
 #define STATE_WAIT 0
 #define STATE_SEND_KEY 1
 #define STATE_RELEASE_KEY 2
+#define STATE_RESET 9
 
 #ifdef __cplusplus
 extern "C"{
@@ -215,19 +215,18 @@ void buildReport(uchar send_key) {
 
 void send_message()
 {
-  if(imsg == iSzMsg)
+  if(imsg > iSzMsg || imsg == SZ_MSG)
   {
     // reset message
-    for(uchar i=0; i < SZ_MSG; i++)
-      message[i] = NULL;
-
-    message[0] = '0';
-    message[1] = '\n';
+    for(uchar i=0; i <= 2; i++)
+      message[i] = 0;
     
     imsg = 0;
-    
-    // SET state
-    state = STATE_RELEASE_KEY;
+    iSzMsg = 0;
+    //PORTC &= (0<<5);
+    //PORTC &= (0<<4);
+    buildReport(NULL);
+    stringComplete = false;
   }
   else
   {
@@ -237,13 +236,19 @@ void send_message()
 }
 
 void setup() {
+  
   UsbDevice.begin();
   state = STATE_SEND_KEY;
 
+  reinit_serial();  
+}
+
+void reinit_serial()
+{
   // initialize serial:
-  Serial.begin(9600);
-  // reserve 20 bytes for the inputString:
-  inputString.reserve(20);
+  Serial.begin(9600 );
+
+  //DDRC |= (1<<5) | (1<<4) | (1<<3);
 }
 
 void loop() {
@@ -257,42 +262,53 @@ void loop() {
     {
       switch(state) {
         case STATE_SEND_KEY:
+          PORTC |= (1<<4);
           send_message();
-          //state = STATE_RELEASE_KEY; // release next <-- taken cared in send_message()
           break;
         case STATE_RELEASE_KEY:
-          buildReport(NULL);
-          state = STATE_WAIT; // should not happen
-          resetFunc();
+          state = STATE_WAIT;
+          return; 
+          //resetFunc();
+          
           break;
         default:
           state = STATE_WAIT; // should not happen
       }
-     
-      usbSetInterrupt((unsigned char*)&keyboard_report, sizeof(keyboard_report));   
+      usbSetInterrupt((unsigned char*)&keyboard_report, sizeof(keyboard_report));
     }
+  }
+  else
+  {
+    //PORTC |= (1<<3);
+    serialEvent();
+    //PORTC &= (0<<3);
   }
 }
 
-
-
 void serialEvent() {
-  while (Serial.available()) {
+  icounter = 0;
+  while (Serial.available() && !stringComplete) {
+    //PORTC |= (1<<5);
     // get the new byte:
     char inChar = (char)Serial.read();
-    // add it to the inputString:
-    if( stringComplete != true)
+
+    message[iSzMsg] = inChar;
+    
+    // if the incoming character is a newline, set a flag
+    // so the main loop can do something about it:
+    if (inChar == '\0') {
+      message[iSzMsg] = '\n';
+      stringComplete = true;
+      
+    }
+
+    iSzMsg++;
+    
+    if( iSzMsg == SZ_MSG || icounter > 10)
     {
-      inputString += inChar;
-      // if the incoming character is a newline, set a flag
-      // so the main loop can do something about it:
-      iSzMsg++;
-      if (inChar == '\n') {
-        stringComplete = true;
-  
-        for(icounter =0; icounter < iSzMsg; icounter++)
-          message[icounter] = inputString[icounter];
-      }
-    }      
+      //PORTC |= (1<<4);
+      iSzMsg = 0;
+    }
+
   }
 }
