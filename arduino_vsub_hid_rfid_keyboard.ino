@@ -28,6 +28,15 @@ boolean stringComplete = false;  // whether the string is complete
 #define STATE_RELEASE_KEY 2
 #define STATE_RESET 9
 
+#define BUZZER_DELAY        500
+#define BUZZER_PIN          8
+#define STDBY_TOGGLE_PIN    7
+#define READY_TOGGLE_PIN    6
+#define SUCCESS             0
+#define STD_BY              2
+#define STDBY_REPETITION    2
+#define FAIL_REPETITION     4
+
 #ifdef __cplusplus
 extern "C"{
 #endif 
@@ -65,6 +74,7 @@ usbMsgLen_t usbFunctionWrite(uint8_t * data, uchar len) {
 } // extern "C"
 #endif
 
+void ringBuzzer(uint8_t);
 void (*resetFunc)(void) = 0;
 
 void convertUsbKeycode( uchar send_key )
@@ -223,8 +233,7 @@ void send_message()
     
     imsg = 0;
     iSzMsg = 0;
-    //PORTC &= (0<<5);
-    //PORTC &= (0<<4);
+
     buildReport(NULL);
     stringComplete = false;
   }
@@ -237,9 +246,9 @@ void send_message()
 
 void setup() {
   
+  pinMode(BUZZER_PIN, OUTPUT);
   UsbDevice.begin();
   state = STATE_SEND_KEY;
-
   reinit_serial();  
 }
 
@@ -247,8 +256,7 @@ void reinit_serial()
 {
   // initialize serial:
   Serial.begin(9600 );
-
-  //DDRC |= (1<<5) | (1<<4) | (1<<3);
+  ringBuzzer(STD_BY);
 }
 
 void loop() {
@@ -268,8 +276,7 @@ void loop() {
         case STATE_RELEASE_KEY:
           state = STATE_WAIT;
           return; 
-          //resetFunc();
-          
+          //resetFunc(); // @todo reflash!
           break;
         default:
           state = STATE_WAIT; // should not happen
@@ -279,16 +286,14 @@ void loop() {
   }
   else
   {
-    //PORTC |= (1<<3);
     serialEvent();
-    //PORTC &= (0<<3);
   }
 }
 
 void serialEvent() {
   icounter = 0;
   while (Serial.available() && !stringComplete) {
-    //PORTC |= (1<<5);
+    
     // get the new byte:
     char inChar = (char)Serial.read();
 
@@ -296,19 +301,44 @@ void serialEvent() {
     
     // if the incoming character is a newline, set a flag
     // so the main loop can do something about it:
-    if (inChar == '\0') {
+    if (inChar == '\0' || inChar == '\n') {
       message[iSzMsg] = '\n';
       stringComplete = true;
-      
     }
-
-    iSzMsg++;
     
-    if( iSzMsg == SZ_MSG || icounter > 10)
-    {
-      //PORTC |= (1<<4);
-      iSzMsg = 0;
-    }
+    iSzMsg++;
 
+    if( iSzMsg == SZ_MSG ){
+      message[iSzMsg] = '\0';
+      stringComplete = true;
+    }
+  }
+}
+
+void ringBuzzer(uint8_t mode = STD_BY){
+   
+  if(mode == SUCCESS){
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(BUZZER_DELAY);
+    digitalWrite(BUZZER_PIN, LOW);
+  }
+  else if(mode == STD_BY){
+
+    for(uint8_t iLoop = 0; iLoop < STDBY_REPETITION; iLoop++){
+
+      digitalWrite(BUZZER_PIN, HIGH);
+      delay(BUZZER_DELAY);
+      digitalWrite(BUZZER_PIN, LOW);
+      delay(BUZZER_DELAY);
+    }
+  }
+  else{
+    for(uint8_t iLoop = 0; iLoop < FAIL_REPETITION; iLoop++){
+
+      digitalWrite(BUZZER_PIN, HIGH);
+      delay(BUZZER_DELAY);
+      digitalWrite(BUZZER_PIN, LOW);
+      delay(BUZZER_DELAY);
+    }
   }
 }
